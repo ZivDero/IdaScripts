@@ -25,7 +25,7 @@ class Instruction:
         self.has_label = has_label
 
     def __str__(self):
-        string = f"\nlabel_{self.ip - function_start:X}:\n" if self.has_label else ""
+        string = f"\nlabel_{self.ip - function_start:06X}:\n" if self.has_label else ""
         string += f"{self.opcode} {','.join(self.operands)}"
         return string
 
@@ -83,7 +83,7 @@ for instr in instructions:
             if not is_address_in_exe(jump_address_int):
                 continue
 
-            instr.operands[0] = instr.operands[0].replace(jump_address, f"label_{jump_address_int - function_start:X}")
+            instr.operands[0] = instr.operands[0].replace(jump_address, f"label_{jump_address_int - function_start:06X}")
 
             for dest_instr in instructions:
                 if jump_address_int == dest_instr.ip:
