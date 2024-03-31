@@ -39,12 +39,12 @@ def sanitize_string(string):
     return "".join(characters)
 
 
+min_ea = ida_ida.inf_get_min_ea()
+max_ea = ida_ida.inf_get_max_ea()
+
+
 def is_address_in_exe(address):
-    sections = [".text", ".data", ".rdata", ".idata"]
-    for section in sections:
-        if ida_segment.get_segm_by_name(section).start_ea <= address <= ida_segment.get_segm_by_name(section).end_ea:
-            return True
-    return False
+    return min_ea <= address <= max_ea
 
 
 address_regex = re.compile("[A-Z0-9]+h(?=[^A-Z0-9]*?)")
