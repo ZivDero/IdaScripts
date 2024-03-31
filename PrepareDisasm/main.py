@@ -40,9 +40,11 @@ def sanitize_string(string):
 
 
 def is_address_in_exe(address):
-    return (ida_segment.get_segm_by_name(".text").start_ea <= address <= ida_segment.get_segm_by_name(".text").end_ea or\
-            ida_segment.get_segm_by_name(".data").start_ea <= address <= ida_segment.get_segm_by_name(".data").end_ea or\
-            ida_segment.get_segm_by_name(".rdata").start_ea <= address <= ida_segment.get_segm_by_name(".rdata").end_ea)
+    sections = [".text", ".data", ".rdata", ".idata"]
+    for section in sections:
+        if ida_segment.get_segm_by_name(section).start_ea <= address <= ida_segment.get_segm_by_name(section).end_ea:
+            return True
+    return False
 
 
 address_regex = re.compile("[A-Z0-9]+h(?=[^A-Z0-9]*?)")
@@ -169,7 +171,7 @@ with open(asm_file_path, "w") as f:
     f.write("\n")
 
     for global_var in global_vars:
-        f.write(f"externdef {global_var}\n")
+        f.write(f"externdef {global_var}:\n")
 
     f.write("\n")
 
