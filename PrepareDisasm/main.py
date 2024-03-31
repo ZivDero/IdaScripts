@@ -1,3 +1,5 @@
+import os.path
+
 from iced_x86 import *
 import re
 import subprocess
@@ -37,13 +39,10 @@ def sanitize_string(string):
     return "".join(characters)
 
 
-def is_address_in_text(address):
-    return ida_segment.get_segm_by_name(".text").start_ea <= address <= ida_segment.get_segm_by_name(".text").end_ea
-
-
-def is_address_in_data(address):
-    return ida_segment.get_segm_by_name(".data").start_ea <= address <= ida_segment.get_segm_by_name(".data").end_ea or\
-            ida_segment.get_segm_by_name(".rdata").start_ea <= address <= ida_segment.get_segm_by_name(".rdata").end_ea
+def is_address_in_exe(address):
+    return (ida_segment.get_segm_by_name(".text").start_ea <= address <= ida_segment.get_segm_by_name(".text").end_ea or\
+            ida_segment.get_segm_by_name(".data").start_ea <= address <= ida_segment.get_segm_by_name(".data").end_ea or\
+            ida_segment.get_segm_by_name(".rdata").start_ea <= address <= ida_segment.get_segm_by_name(".rdata").end_ea)
 
 
 address_regex = re.compile("[A-Z0-9]+h(?=[^A-Z0-9]*?)")
@@ -54,6 +53,7 @@ function_bytes = ida_bytes.get_bytes(function.start_ea, function.end_ea - functi
 
 decoder = Decoder(32, function_bytes, ip=function_start)
 formatter = Formatter(FormatterSyntax.MASM)
+# formatter.memory_size_options = MemorySizeOptions.ALWAYS
 
 instructions = list()
 for instr in decoder:
@@ -78,7 +78,7 @@ for instr in instructions:
 
             jump_address = jump_address_match.group(0)
             jump_address_int = hex_0x_to_int(jump_address)
-            if not is_address_in_text(jump_address_int):
+            if not is_address_in_exe(jump_address_int):
                 continue
 
             instr.operands[0] = instr.operands[0].replace(jump_address, f"label_{jump_address_int:X}")
@@ -104,9 +104,8 @@ for instr in instructions:
 
             call_address = call_address_match.group(0)
             call_address_int = hex_0x_to_int(call_address)
-            if not is_address_in_text(call_address_int):
+            if not is_address_in_exe(call_address_int):
                 continue
-
             func_name = f"func_{call_address_int:X}"
             instr.operands[0] = instr.operands[0].replace(call_address, func_name)
 
@@ -131,7 +130,7 @@ for instr in instructions:
 
         address_str = address_match.group(0)
         address_int = hex_0x_to_int(address_str)
-        if not (is_address_in_text(address_int) or is_address_in_data(address_int)):
+        if not is_address_in_exe(address_int):
             continue
 
         global_name = ida_name.get_nice_colored_name(address_int, 3)
@@ -145,15 +144,18 @@ for instr in instructions:
             instr.operands[i] = operand.replace(address_str, global_name_stripped)
 
 
-with open(asm_file_path, "r") as f:
-    contents = f.read()
-
 ASM_HEADER = ".486\n.model flat\n.code _DIFF_SEG\n\n"
-end_index = contents.rfind("END")
-append_mode = end_index != -1 and contents.startswith(ASM_HEADER)
 
-if append_mode:
-    contents = contents[:end_index] + "\n\n"
+append_mode = False
+if os.path.isfile(asm_file_path):
+    with open(asm_file_path, "r") as f:
+        contents = f.read()
+
+    end_index = contents.rfind("END")
+    append_mode = end_index != -1 and contents.startswith(ASM_HEADER)
+
+    if append_mode:
+        contents = contents[:end_index] + "\n\n"
 
 with open(asm_file_path, "w") as f:
     if append_mode:
@@ -167,7 +169,7 @@ with open(asm_file_path, "w") as f:
     f.write("\n")
 
     for global_var in global_vars:
-        f.write(f"externdef {global_var}:dword\n")
+        f.write(f"externdef {global_var}\n")
 
     f.write("\n")
 
