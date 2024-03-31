@@ -23,9 +23,7 @@ class Instruction:
         self.has_label = has_label
 
     def __str__(self):
-        string = ""
-        if self.has_label:
-            string += f"\nlabel_{self.ip:X}:\n"
+        string = f"\nlabel_{self.ip:X}:\n" if self.has_label else ""
         string += f"{self.opcode} {','.join(self.operands)}"
         return string
 
@@ -34,16 +32,18 @@ def hex_0x_to_int(string):
     return int(f"0x{string.replace('h', '')}", 16)
 
 
-def int_to_hex(number):
-    return f"{number:X}"
-
-
 def sanitize_string(string):
     characters = [c if c in allowed_chars else "_" for c in string]
-    new_string = ""
-    for character in characters:
-        new_string += character
-    return new_string
+    return "".join(characters)
+
+
+def is_address_in_text(address):
+    return ida_segment.get_segm_by_name(".text").start_ea <= address <= ida_segment.get_segm_by_name(".text").end_ea
+
+
+def is_address_in_data(address):
+    return ida_segment.get_segm_by_name(".data").start_ea <= address <= ida_segment.get_segm_by_name(".data").end_ea or\
+            ida_segment.get_segm_by_name(".rdata").start_ea <= address <= ida_segment.get_segm_by_name(".rdata").end_ea
 
 
 address_regex = re.compile("[A-Z0-9]+h(?=[^A-Z0-9]*?)")
@@ -78,6 +78,9 @@ for instr in instructions:
 
             jump_address = jump_address_match.group(0)
             jump_address_int = hex_0x_to_int(jump_address)
+            if not is_address_in_text(jump_address_int):
+                continue
+
             instr.operands[0] = instr.operands[0].replace(jump_address, f"label_{jump_address_int:X}")
 
             for dest_instr in instructions:
@@ -86,7 +89,7 @@ for instr in instructions:
                     break
 
         except:
-            print(f"WARNING: Jump address not found. IP: {instr.ip:X}. {instr.opcode} {instr.operands}")
+            print(f"WARNING: Jump address not found. IP: {instr.ip:X}. {str(instr)}")
             continue
 
 
@@ -101,6 +104,9 @@ for instr in instructions:
 
             call_address = call_address_match.group(0)
             call_address_int = hex_0x_to_int(call_address)
+            if not is_address_in_text(call_address_int):
+                continue
+
             func_name = f"func_{call_address_int:X}"
             instr.operands[0] = instr.operands[0].replace(call_address, func_name)
 
@@ -108,7 +114,7 @@ for instr in instructions:
                 calls.append(func_name)
 
         except:
-            print(f"WARNING: Call address not found. IP: {instr.ip:X}. {instr.opcode} {instr.operands}")
+            print(f"WARNING: Call address not found. IP: {instr.ip:X}. {str(instr)}")
             continue
 
 
@@ -125,7 +131,7 @@ for instr in instructions:
 
         address_str = address_match.group(0)
         address_int = hex_0x_to_int(address_str)
-        if address_int < 0x401000:
+        if not (is_address_in_text(address_int) or is_address_in_data(address_int)):
             continue
 
         global_name = ida_name.get_nice_colored_name(address_int, 3)
@@ -133,14 +139,27 @@ for instr in instructions:
         if global_name_stripped not in global_vars:
             global_vars.append(global_name_stripped)
 
-        if len(address_str) == len(operand):
+        if address_str == operand:
             instr.operands[i] = f"offset {global_name_stripped}"
         else:
             instr.operands[i] = operand.replace(address_str, global_name_stripped)
 
 
+with open(asm_file_path, "r") as f:
+    contents = f.read()
+
+ASM_HEADER = ".486\n.model flat\n.code _DIFF_SEG\n\n"
+end_index = contents.rfind("END")
+append_mode = end_index != -1 and contents.startswith(ASM_HEADER)
+
+if append_mode:
+    contents = contents[:end_index] + "\n\n"
+
 with open(asm_file_path, "w") as f:
-    f.write(".486\n.model flat\n.code _DIFF_SEG\n\n")
+    if append_mode:
+        f.write(contents)
+    else:
+        f.write(".486\n.model flat\n.code _DIFF_SEG\n\n")
 
     for call in calls:
         f.write(f"externdef {call}:near\n")
@@ -152,9 +171,12 @@ with open(asm_file_path, "w") as f:
 
     f.write("\n")
 
+    f.write(f"func_{function_start:X} PROC\n")
+
     for instr in instructions:
         f.write(str(instr) + "\n")
 
+    f.write(f"func_{function_start:X} ENDP\n")
     f.write("\nEND\n")
 
 subprocess.call(f"{assembler_path} /c /coff /Fo\"{object_file_path}\" \"{asm_file_path}\"", shell=False)
